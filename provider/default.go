@@ -136,15 +136,15 @@ func (a *myProviderAdapter) CreateOutboundFromContent(ctx context.Context, route
 	return nil
 }
 
+func GetTrimedFile(path string) []byte {
+	content, _ := os.ReadFile(path)
+	return []byte(TrimBlank(string(content)))
+}
+
 func TrimBlank(str string) string {
 	str = strings.Trim(str, " ")
 	str = strings.Trim(str, "\t")
 	return str
-}
-
-func GetTrimedFile(path string) []byte {
-	content, _ := os.ReadFile(path)
-	return []byte(TrimBlank(string(content)))
 }
 
 func (p *myProviderAdapter) GetContentFromFile(router adapter.Router) string {
@@ -165,10 +165,43 @@ func (p *myProviderAdapter) GetContentFromFile(router adapter.Router) string {
 	return content
 }
 
+func replaceIllegalBase64(content string) string {
+	result := content
+	result = strings.ReplaceAll(result, "-", "+")
+	result = strings.ReplaceAll(result, "_", "/")
+	return result
+}
+
 func DecodeBase64Safe(content string) string {
-	reg := regexp.MustCompile("^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{3}=?|[A-Za-z0-9+/]{2}(==)?)$")
-	if len(reg.FindStringSubmatch(content)) > 0 {
-		decode, err := base64.StdEncoding.DecodeString(content)
+	reg1 := regexp.MustCompile("^(?:[A-Za-z0-9-_+/]{4})*[A-Za-z0-9_+/]{4}$")
+	reg2 := regexp.MustCompile("^(?:[A-Za-z0-9-_+/]{4})*[A-Za-z0-9_+/]{3}(=)?$")
+	reg3 := regexp.MustCompile("^(?:[A-Za-z0-9-_+/]{4})*[A-Za-z0-9_+/]{2}(==)?$")
+	var result []string
+	result = reg1.FindStringSubmatch(content)
+	if len(result) > 0 {
+		decode, err := base64.StdEncoding.DecodeString(replaceIllegalBase64(content))
+		if err == nil {
+			return string(decode)
+		}
+	}
+	result = reg2.FindStringSubmatch(content)
+	if len(result) > 0 {
+		equals := ""
+		if result[1] == "" {
+			equals = "="
+		}
+		decode, err := base64.StdEncoding.DecodeString(replaceIllegalBase64(content + equals))
+		if err == nil {
+			return string(decode)
+		}
+	}
+	result = reg3.FindStringSubmatch(content)
+	if len(result) > 0 {
+		equals := ""
+		if result[1] == "" {
+			equals = "=="
+		}
+		decode, err := base64.StdEncoding.DecodeString(replaceIllegalBase64(content + equals))
 		if err == nil {
 			return string(decode)
 		}
@@ -176,21 +209,20 @@ func DecodeBase64Safe(content string) string {
 	return content
 }
 
-func ParseContent(contentRaw string) []byte {
+func ParseContent(contentRaw string) string {
 	content := DecodeBase64Safe(contentRaw)
-	return []byte(content)
+	return content
 }
 
-func (p *myProviderAdapter) ParseOutbounds(ctx context.Context, router adapter.Router, content []byte) error {
+func (p *myProviderAdapter) ParseOutbounds(ctx context.Context, router adapter.Router, content string) error {
 	if len(content) == 0 {
 		return nil
 	}
-	var options option.Options
-	err := options.UnmarshalJSON(content)
+	outbounds, err := newParser(content)
 	if err != nil {
-		return E.Cause(err, "decode config at ", p.path)
+		return err
 	}
-	err = p.CreateOutboundFromContent(ctx, router, options.Outbounds)
+	err = p.CreateOutboundFromContent(ctx, router, outbounds)
 	if err != nil {
 		return err
 	}

@@ -96,11 +96,11 @@ func (p *HTTPProvider) FetchContent(router adapter.Router) (string, string, erro
 	}
 }
 
-func (p *HTTPProvider) ContentFromHTTP(router adapter.Router) []byte {
+func (p *HTTPProvider) ContentFromHTTP(router adapter.Router) string {
 	contentRaw, subInfo, err := p.FetchContent(router)
 	if err != nil {
 		E.Cause(err, "fetch provider ", p.tag, " failed")
-		return nil
+		return ""
 	}
 	path := p.path
 	if ok := p.ParseSubInfo(subInfo); ok {
@@ -111,14 +111,14 @@ func (p *HTTPProvider) ContentFromHTTP(router adapter.Router) []byte {
 	}
 	p.updateTime = time.Now()
 	content := ParseContent(contentRaw)
-	os.WriteFile(path, content, 0o666)
+	os.WriteFile(path, []byte(content), 0o666)
 	return content
 }
 
-func (p *HTTPProvider) GetContent(router adapter.Router) []byte {
+func (p *HTTPProvider) GetContent(router adapter.Router) string {
 	if !p.start {
 		p.start = true
-		return []byte(p.GetContentFromFile(router))
+		return p.GetContentFromFile(router)
 	}
 	return p.ContentFromHTTP(router)
 }
